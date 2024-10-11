@@ -1,0 +1,149 @@
+** set random number generator for replication purposes
+set seed 47985
+** Propensity score match
+** assumptions include 1-to-1 and unique so no replacement using all available demographics
+psmatch2 treatment Sex Age FirstGen PELL TFCSchol Ethnic_Black Ethnic_Hispanic Ethnic_White Class_FR Class_SO College_ARTS College_BUS College_EDUC College_NHHS College_TECH College_UNIV, noreplacement
+
+** confirm matching group N equal to treatment group
+table treatment _weight
+
+** Graphical examination of p_scores to visualize model fit
+histogram _pscore if _weight==1, by(treatment)
+
+** Compare demographics of two groups
+** creates a table showing percent in each demo and at bottom
+** use to select and confirm that groups are identical or to select vars needed to also go into analysis as control vars
+table () treatment, stat(fvprop Sex FirstGen PELL TFCSchol Ethnic_Black Ethnic_White Ethnic_Hispanic Ethnic_Other) stat (sd Sex FirstGen PELL TFCSchol Ethnic_Black Ethnic_White Ethnic_Hispanic Ethnic_Other)
+**for age
+table () treatment, stat(mean Age) stat(sd Age)
+
+** drop students outside the treat or control groups
+keep if _weight==1
+**************************************************************
+**merge in 2022 data
+merge 1:1 Pidm using "filepath"
+
+** Remove students not part of original 2020 cohort or comp group
+drop if _merge==2
+describe
+
+** remove the merge variable - no longer needed
+drop _merge
+*******************************************************************************
+** Recode new data to show withdrawls for missing students meeting rules
+** Rules are data is missing, didn't graduate in prior period
+*******************************************************************************
+replace fall22_drop=1 if fall22_drop==. & fall22_grad!=1 & GradTerm_y==.
+replace sp23_drop=1 if sp23_drop==. & fall22_grad!=1 & sp23_grad!=1 & GradTerm_y==.
+replace fall22_drop=0 if GradTerm_y!=.
+replace sp23_drop=0 if GradTerm_y!=.
+
+*** Continuing the credit hours
+replace f22_tot_credithr= Sp2022TotalEarnHrs if f22_tot_credithr==.
+replace s23_tot_credithr= f22_tot_credithr if s23_tot_credithr==.
+replace TotalEarnHrs=0 if TotalEarnHrs==.
+
+***Changed one observation to 0 because they graduated in the fall so they didn't withdrawal
+replace sp23_drop=0 if sp23_drop==. & fall22_grad==1
+
+***Cleaning the graduation variable in Fall 22 and Spring 23
+replace fall22_grad=0 if fall22_grad==. & GradTerm_y==.
+replace fall22_grad=1 if fall22_grad==. & GradTerm_y==202201
+replace sp23_grad=0 if sp23_grad==.& fall22_grad==0
+replace sp23_grad=1 if sp23_grad==. & fall22_grad==1
+
+***Renaming Pidm to pidm for futute merge
+rename Pidm, lower
+
+***Renaming gpa to match the semester
+rename CumulativeGPA f20_cumulative_gpa
+rename SpringCumulativeGPA s21_cumulative_gpa
+
+***Chaning NAs in GPA to 0 in fall 2020
+replace f20_cumulative_gpa=0 if f20_cumulative_gpa==.
+
+***Continuing gpa if blank because they either dropped or graduated. Fall 2021 and Spring 2020 has no NAs because previous analysis changed them to 0.
+replace f22_cuml_gpa= Sp2022CumulativeGPA if f22_cuml_gpa==.
+replace sp23_cuml_gpa= f22_cuml_gpa if sp23_cuml_gpa==.
+******************************************************************************
+***Merging in new 2023 data
+merge 1:1 pidm using "filepath"
+*******************************************************************************
+***Dropping observations not in 2023 data
+drop if _merge==2
+
+***Continuing the credit hours for those not in 2023 data
+replace fa2023totalearnhrs= s23_tot_credithr if fa2023totalearnhrs==.
+replace sp2024totalearnhrs= fa2023totalearnhrs if sp2024totalearnhrs==.
+
+***Renaming gpa variables
+rename cumulativegpa f23_cumulative_gpa
+rename springcumulativegpa s24_cumulative_gpa
+
+***Continuing GPA 
+replace f23_cumulative_gpa= sp23_cuml_gpa if f23_cumulative_gpa==.
+replace s24_cumulative_gpa= f23_cumulative_gpa if s24_cumulative_gpa==.
+
+***Cleaning withdrawals
+replace fall2023withdrewdummy=1 if fall2023withdrewdummy==. & sp23_grad==0
+replace fall2023withdrewdummy=0 if fall2023withdrewdummy==. & sp23_grad==1
+replace spring2024withdrewdummy=1 if spring2024withdrewdummy==. & fall2023withdrewdummy==1
+replace spring2024withdrewdummy=0 if spring2024withdrewdummy==. & fall2023withdrewdummy==0
+
+***Cleaning graduation variable 
+replace fall2023graduationdummy=0 if fall2023graduationdummy==. & fall2023withdrewdummy==1
+replace fall2023graduationdummy=1 if fall2023graduationdummy==. & sp23_grad==1
+replace spring2024graduationdummy=0 if spring2024graduationdummy==. & fall2023graduationdummy==0
+replace spring2024graduationdummy=1 if spring2024graduationdummy==. & fall2023graduationdummy==1
+**************************************************************************************
+***Running withdrawal logistic regressions
+logistic Fall20withdrew_Dummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic Spring21withdrew_Dummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic Fall21withdrew_Dummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic Spring22withdrew_Dummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic fall22_drop treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic sp23_drop treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic fall2023withdrewdummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic spring2024withdrewdummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+
+***Running credit hour regressions 
+reg SpringTotalEarnHrs treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg Fa2021TotalEarnHrs treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg Sp2022TotalEarnHrs treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg f22_tot_credithr treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg s23_tot_credithr treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg fa2023totalearnhrs treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg sp2024totalearnhrs treatment TotalEarnHrs Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+
+***Running GPA regressions
+reg f20_cumulative_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg s21_cumulative_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg Fa2021CumulativeGPA treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg Sp2022CumulativeGPA treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg f22_cuml_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg sp23_cuml_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg f23_cumulative_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+reg s24_cumulative_gpa treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+
+***Running graduation logistic regressions 
+logistic fall22_grad treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic sp23_grad treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic fall2023graduationdummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+logistic spring2024graduationdummy treatment Class_SO Ethnic_Black Ethnic_Hispanic Sex College_BUS College_EDUC College_TECH College_ARTS College_NHHS
+
+***raw graduation counts
+table treatment fall22_grad
+table treatment sp23_grad
+table treatment fall2023graduationdummy
+table treatment spring2024graduationdummy
+
+***raw credit hours for each group
+sort treatment
+by treatment: sum SpringTotalEarnHrs Fa2021TotalEarnHrs Sp2022TotalEarnHrs f22_tot_credithr s23_tot_credithr fa2023totalearnhrs sp2024totalearnhrs
+
+***raw gpa for each group
+sort treatment
+by treatment: sum f20_cumulative_gpa s21_cumulative_gpa Fa2021CumulativeGPA Sp2022CumulativeGPA f22_cuml_gpa sp23_cuml_gpa f23_cumulative_gpa s24_cumulative_gpa
+
+***raw withdrawals for each group
+by treatment: sum Fall20withdrew_Dummy Spring21withdrew_Dummy Fall21withdrew_Dummy Spring22withdrew_Dummy fall22_drop sp23_drop fall2023withdrewdummy spring2024withdrewdummy
