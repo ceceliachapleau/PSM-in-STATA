@@ -1,0 +1,1 @@
+This project assessed the impact of a mentoring program on gpa, credit hours, withdrawal, and graduation. I first conducted an one-to-one propensity score matched with the 2020/21 cohort. I then merged in data from 2022-24, dropped those not in the origin control and treatment 2020/21 cohort, and ran linear and logistic regressions. 
